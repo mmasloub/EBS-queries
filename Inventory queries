@@ -1,0 +1,968 @@
+-- http://kishorecboracleapps.blogspot.com/ 
+--source http://kishorecboracleapps.blogspot.com/2013/01/inventory-transactions-useful.html
+
+--Oracle Apps Techno Functional................
+
+--TUESDAY, 29 JANUARY 2013
+
+Inventory Transactions Useful Information
+
+/*In oracle Applications, the hierarchy of org's is given below.
+ 
+   Set of Books => Legal Entities => Operating Units => Inventory Organization.
+ 
+   The Set of Books is defined in the General Ledger application setups, Legal Entity 
+   is defined in the HR while the Operating Units and Inventory Organization
+   (organization) are defined in the Inventory App. 
+ 
+   In Inventory, the items are stored in different subinventories, locations etc. 
+   We can find what are all the subinventories that are available in the systems. 
+   Generally we define subinventories corresponding to an inventory organization 
+   and one inventory organization will have several subinventories associated 
+   with it.(setup=>subinventories)
+*/
+ 
+SELECT secondary_inventory_name,description, organization_id,location_id ,a.* 
+FROM   mtl_secondary_inventories a
+WHERE  secondary_inventory_name LIKE 'MY%'
+ 
+--select * from mtl_physical_inventories , mtl_physical_subinventories
+ 
+/*  We can define the locations that these subinventories will be physically located 
+using  the setup And associate these locations to a particular sub inventory,it 
+can be seen from above query. */
+ 
+   SELECT location_code, location_use, description descr,ship_to_Location_id, 
+          ship_to_site_flag,inventory_organization_id 
+   FROM   hr_locations
+   WHERE  location_code LIKE 'MY%'
+ 
+   /* The different types of transactions that are available in Inventory are given 
+   below.They are like 
+            Subinventory Transfer, 
+        Move Order, 
+     Container Pack etc. 
+    A transaction type is a combination of transaction
+   source type and transaction action. We can have a user-defined transaction 
+   source types, but there are a predefined set of transaction actions(a user cannot 
+   define anymore tranasction actions). So based on a pre-defined transaction actions 
+   and source types, we have some predefined transaction types. However if we need to 
+   have a new transaction type(apart from already provided ones), we have to create a 
+   new transaction source type, and create a new transaction type based on the new 
+   transaction source type and associating it with a any of the existing transaction 
+   actions.
+      
+   Ex's of transaction action is "Issue from Stores", "Receipt into Stores" etc.
+   Ex of a predefined txn source type is "Sales Order ". 
+   So based on these two, the predefined transaction type is "Sales Order Issue".
+   Another ex is we can have a predefined source type as "Goodwill" and transaction 
+   action is "Issue from Stores" and Transaction type is "Goodwill Donation". 
+      
+   One more ex is transaction type "Subinventory Transfer" which corresponds to the 
+   transaction action "Subinventory Transfer".
+   */
+      
+   SELECT transaction_type_name, transaction_source_type_id, status_control_flag
+   FROM mtl_transaction_types
+   ORDER BY 1
+      
+   SELECT transaction_source_type_id, transaction_source_type_name, description
+   FROM mtl_txn_source_types
+   ORDER BY 1
+ 
+   /* So we can see that items can participate in different kinds of transactions like 
+   "Issue from stores" in which case they go out to the sales order, "Receipt into Stores" 
+   coming into the inventory, moving across the subinventory which is called subinventory 
+   transfer etc. So all these transactions are stored in the table mtl_material_transactions. 
+   So given a item name, we can always find out in all the transactions that this item 
+   has participated in, by using the following query. So all these transactions are called 
+   Item Transactions or Material Transactions. It is interesting to see that the item's 
+   transaction quantity having a negative balance as well as positive balance.*/
+   */
+      
+   SELECT transaction_quantity, inventory_item_id,subinventory_code,source_code,
+   transaction_type_id, transaction_action_id, transaction_source_type_id
+   FROM mtl_material_transactions
+   WHERE inventory_item_id =(SELECT inventory_item_id FROM mtl_system_items_b 
+   WHERE organization_id= 1 AND segment1='CISCO TEST ITEM1'
+   ) 
+   
+   /* Move Orders :- Move Orders are requests for the movement of material within 
+   a single inventory organization. This will allow planners and facility managers 
+   to request the movement of material within the warehouse/facility for purposes 
+   like Replenishment, Material storage relocations and Quality Handling.
+   Move Orders are restricted to only with in inventory organizations, and if you 
+   want to move out of an organization, then we have to use the internal requisition process.
+ 
+   Oracle provides for 3 types of Move Orders
+ 
+   Move Order Requisitions :: Manually generated request for Move Order.
+ 
+   Replenishment Move Order:: ex Preapproved automatic move order which can happen when a minimum quantity is
+                reached in inventory.
+   Pick Wave Move Order    ::  Preapproved requests for subinventory transfers to bring material from a source
+                   location to a staging subinventory.
+   The Move Order type refers to the entity that created the Move Order. For all Move orders the final result is
+   either Subinventory Transfer or Account Process. Move Orders use Inventory picking rules to suggest
+   source location, lot number, revisions for the material to be picked.
+ 
+   So out of the 3 different move order types, two of them are typically pre-approved move orders while the 
+   Move order requisition is a manual move order,which we can allocate and transact it manually.
+   The different steps that a move order will go thru are given below.
+ Move Order Creation.
+ Move Order Approval.
+ Move Order Allocation => At this stage, the Inventory will use picking rules defined to allocate the 
+   Material to this particular Move order.At this point the material reservation is made.
+   that is we can check the information in the table mtl_reservations.
+   In this step, it will fill all the details like the from and to subinventory,but does not
+   actually execute those steps.
+ Print Pick Slip (optional) => This is an optional step to print the pick slip.
+ Move Order Transaction. => Typically each Move order will consist of a header and lines. Each line
+  will correspond to an item. We can transact one line at a time or all together.
+  Now at this point the actual subinventory transfer will happen. That is we can see the records
+  in the material transaction mtl_material_transactions.
+   */
+ 
+ 
+   /* Generally quantities of items are stored in subinventories corresponding to 
+   an organization. An org can get a material qty from a transaction which can either 
+   be a purchase , movement from another subinventory, manufactured etc. If we have 
+   any material transaction like subinventory transfer of any particular item also
+   we can see that from this query.  */
+   
+   SELECT b.inventory_item_id item_id, b.organization_id org, b.segment1 item_code,  
+   a.transaction_quantity, subinventory_code subinvt,  cost_group_id
+   FROM mtl_onhand_quantities_detail a, mtl_system_items_b b
+   WHERE a.organization_id = b.organization_id
+   AND  a.inventory_item_id = b.inventory_item_id
+   AND  b.segment1 = 'CISCO TEST ITEM1'
+ 
+ 
+  -- Givena a item code, query will give the organization name. 
+   SELECT inventory_item_id, a.organization_id , b.name
+   FROM mtl_system_items a, hr_organization_units b
+   WHERE segment1='MARUTI 4000'
+   AND a.organization_id = b.organization_id --707983616
+ 
+   -- Given a item , we can find all the orders which have placed an order on these items
+   SELECT header_id, line_id
+   FROM oe_order_lines_all 
+   WHERE ordered_item='MARUTI 4000'
+ 
+   /* An Item onhand quantity is the total quantity of that item. We can see that 
+   quantity in the mtl_onhand_quantities_detail table. Out of this amount, we can 
+   place reservations for that item either on the order line itself or we can even 
+   go to the Inventory and do this. In the latter case, we choose the "Reservations" 
+   form to place a reservation on this item. Incidentally we need to provide the 
+   order number and the line number which has this item, which creates a reservation 
+   on that item.   In that case, the data goes into the mtl_reservations table. Hence 
+   the available quantity of any item is  onhand minus the reserved quantity. So the 
+   formula is
+        onfiltered= Reserved + Available (to transact, reserve or sell).
+   
+   The below query will also give you the order line id (demand source line id) of an order which has placed 
+   the reservation. */
+ 
+   SELECT demand_source_header_id, demand_source_line_id,reservation_quantity
+   ,supply_source_type_id,subinventory_code
+   FROM mtl_reservations
+   WHERE inventory_item_id = 
+   (SELECT inventory_item_id FROM mtl_system_items WHERE segment1='TESTSTD1'
+   AND organization_id =1)
+   AND organization_id = 1
+   
+   /* To get all those order lines which have place a reservation on a particular 
+   item, use this query.*/
+   SELECT * 
+   FROM oe_order_lines_all 
+   WHERE line_id IN
+       (SELECT demand_source_line_id
+       FROM mtl_reservations
+       WHERE inventory_item_id = 
+    (SELECT inventory_item_id FROM mtl_system_items WHERE segment1='TESTSTD1'
+       AND organization_id =1)
+       AND organization_id = 1) 
+ 
+ /* Generally any item when it is first created will be assigned a default
+  category set, which can be defined as part of setup data. 
+ */
+      SELECT a.inventory_item_id,a.organization_id, b.category_set_name, c.segment1
+      FROM mtl_item_categories a, mtl_category_sets b, mtl_categories c
+      WHERE a.category_set_id = b.category_set_id
+      AND a.category_id = c.category_id
+      AND inventory_item_id = 
+      (SELECT inventory_item_id FROM mtl_system_items_b WHERE segment1='LUCKYITEM'
+      AND organization_id =1)
+      AND organization_id = 1
+ 
+      SELECT category_set_id,category_set_name,description,structure_id,validate_flag
+      FROM mtl_category_sets
+      WHERE description LIKE '%Item%'
+       
+      SELECT * --category_id,structure_id,segment1, description
+      FROM mtl_categories
+   
+      SELECT a.inventory_item_id,a.organization_id, a.category_set_id, 
+      a.category_id--,a.cms_replication_date
+         ,b.segment1,b.description, c.category_set_name, c.description
+      FROM mtl_item_categories a, mtl_categories b, mtl_category_sets c
+      WHERE inventory_item_id = 
+     (SELECT inventory_item_id FROM mtl_system_items 
+       WHERE segment1='CISCO TEST ITEM1'
+      AND organization_id = 1)
+      AND a.category_id = b.category_id
+      AND a.category_set_id = c.category_set_id 
+ 
+   /* Item attributes and status codes : Item attributes are information 
+   about an item for ex, lead time, revision control, order cost etc. We can have 
+   2 kinds of control levels for these item attributes, which we set at the 
+   time of defining the item. They are master level (which is centralized i.e 
+   attributes defined at master level will have same values at all the org 
+   levels. And in org level the values defined will have different values at 
+   different orgs. ex UOM. 
+ 
+   There are two kinds of item attributes, 
+      --- Item Defining attributes
+   --- Item Status attributes
+   
+   /* You cannot enable the status attribute, until you set the corresponding 
+   item defining attribute to Yes */ 
+ /*  
+   The Item Defining attributes are 
+            Inventory Item
+      Internal Ordered 
+      Purchased
+      MRP Planning Method
+      Costing Enabled
+      Engineering Item
+      Customer Ordered
+      Support Service 
+      Invoiceable Item
+   
+   All the above item defining attributes are given by the below query.
+   */
+     SELECT   inventory_item_flag, 
+        purchasing_item_flag, 
+     internal_order_flag,
+     mrp_calculate_atp_flag,
+          costing_enabled_flag,
+     eng_item_flag, 
+     customer_order_flag,
+     serviceable_product_flag
+     --serviceable_component_flag ,service_item_flag
+     FROM   mtl_system_items_b
+/*   
+   THe Item status attribute are 8 and they are,
+    
+            BOM Allowed, 
+       Build in WIP,
+       Customer Orders Enabled, 
+       Internal Orders Enabled, 
+          Invoice Enabled, 
+       Transactable, 
+       Purchasable, 
+       Stockable. 
+   
+   All these attributes are flags and the following query will give all those attributes. */
+ 
+	SELECT inventory_item_id
+		,organization_id
+		,bom_enabled_flag
+		,build_in_wip_flag
+		,customer_order_enabled_flag
+		,internal_order_enabled_flag
+		,invoice_enabled_flag
+		,mtl_transactions_enabled_flag
+		,purchasing_enabled_flag
+		,stock_enabled_flag
+	FROM mtl_system_items_b
+	WHERE inventory_item_id = 101177
+
+/* 
+   Here is the mapping of the Item defining vs the Item status attributes
+     
+		Inventory Item   (stockable, transactable, BOM Allowed)          
+        Internal Ordered (Internal Orders Enabled) 
+		Purchased   (Purchasable)
+        MRP Planning Method
+        Costing Enabled  
+        Engineering Item
+        Customer Ordered  (Customer Orders Enabled)
+        Support Service 
+		Invoiceable Item (Invoice Enabled)
+*/
+	 /* Before we go further, let us briefly dwell about the functional area 
+	 and the default category sets in Inventory. In Inventory for every functional 
+	 area, there is a default category set associated. We can see this from the 
+		 setup => Items => Categories => Default Category Sets. 
+	 Alternatively we can see that from the database table as well, as given below. 
+	 The primary purpose of using the categories and category sets is reporting.
+	 We can generate reports based on them.*/
+     
+	SELECT ds.functional_area_id
+		,ml.meaning functional_area_desc
+		,ds.category_set_id
+		,cst.category_set_name
+		,cst.description category_set_description
+	FROM mtl_default_category_sets ds
+		,mfg_lookups ml
+		,mtl_category_sets_tl cst
+	WHERE ml.lookup_type = 'MTL_FUNCTIONAL_AREAS'
+		AND ml.lookup_code = ds.functional_area_id
+		AND cst.category_set_id = ds.category_set_id
+		AND cst.LANGUAGE = USERENV('LANG')
+
+ 
+ /* Having defined the item defining attributes and the functional areas. 
+ Whenever an item defining attribute is set to yes for an item, then the default 
+ category set of the corresponding functional area is assigned to that item.
+ 
+ Item Attribute Controls. You can choose to have centralized or decentralized 
+ control of item attributes. Defining attribute controls does not determine 
+ the value of an attribute ,only the level at which it is controlled.
+ As mentioned before, there are 2 kinds of attribute controls, which are 
+  a) item attributes controlling at the master/org level and 
+ b) status attribute value control. 
+ Both these things we can do from the form 
+       setup => Items => Attribute Controls.
+ */
+ 
+	 SELECT inventory_item_status_code,attribute_name, attribute_value
+	 FROM  mtl_status_attribute_values
+	 WHERE  inventory_item_status_code ='Active'
+ 
+ /*From the below query we can see that if the status setting is 1 i.e 
+ corresponding to "Sets Value",then it means it is status controlled. and if 
+ the status setting is "Not Used", then that particular status attributes is
+ not status controlled. The same thing shows up when we go to the form 
+            setup => Items => Status Codes. 
+  */
+	SELECT user_attribute_name
+		,user_attribute_name_gui
+		,status_control_code
+		,-- (1 for status setting "Sets Value", 3 for Status setting "Not Used") 
+		control_level
+		,-- (1 for master,2 for org)
+		attribute_name
+		,level_updateable_flag
+		,attribute_group_id
+	FROM mtl_item_attributes
+	WHERE user_attribute_name IN (
+			'BOM Allowed'
+			,'Build in WIP'
+			,'Purchasable'
+			,'Stockable'
+			,'Invoice Enabled'
+			,'Customer Orders Enabled'
+			,'Internal Orders Enabled'
+			,'Transactable'
+			)
+
+ /* Now let us see the form setup => Items => Status Codes, there we can group 
+ a item status to  these set of 8 status attributes and then we can find that. */
+ 
+	SELECT ROWID
+		,inventory_item_status_code
+		,attribute_name
+		,attribute_value
+	FROM mtl_status_attribute_values
+	WHERE inventory_item_status_code = 'Active'
+
+  
+ /*PICKING RULES : Typically the inventory items are stored in different 
+ subinventories,will have different lot numbers and revisions.Which one needs 
+ to be picked will be determined by the picking rules.
+   We can define picking rules which basically define the order in which 
+ revisions, lots , subinventories and locators are picked for sales orders.
+ You can get the picking rules from the below query. When you define an 
+  item, you can choose a picking rule that you have defined. When Oracle 
+ Shipping Execution submits requests to Oracle Inventory, it uses the info in 
+ picking rule to generate the picklists for sales orders.  
+ 
+ A picking rule can be specified from the order management tab in the Item definition form*/ 
+ 
+ SELECT picking_rule_id, picking_rule_name, description,
+  revision_rule , 
+  lot_rule, 
+  serial_number_rule, 
+  subinventory_rule,locator_rule
+ FROM  mtl_picking_rules
+  
+ /*As mentioned , there can be various orders that you can define, like revision order, lot order, subinventory
+ order,locator order. Now in the case of 
+ revision order, you can choose to have the most recent revision or earliest revision effective date.
+ lot order, pick the lowest lot number or earliest lot effective date
+ subinventory order , pick by order defined by subinventory, or earliest subinventory receipt date.etc 
+ Subinventory receipt date means, what is the earlies receipt date in that subinventory.*/
+ 
+ /*Item templates. Since we know that there are hundreds of attributes which an item can have,(distributed 
+ across various tabs in form), it can be tedious to enter all these attributes for each item. Hence we can 
+ define a template (for frequently defined items) and then while defining an item, we can choose this template
+ from Tools => copy from , and then all these attribute values will be defaulted immediately.*/
+  
+  SELECT rule_id, rule_name,description 
+  FROM   mtl_atp_rules
+ 
+ 
+  /* The stock locators are basically areas within the subinventory where the 
+   inventory items are stored. Hence each stock locator will correspond to a 
+   subinventory.You can set up an stock locator and assign it to the subinventory 
+ from setup => Items => Stock Locators.*/
+ 
+ SELECT inventory_location_id, organization_id,  inventory_location_type,subinventory_code,segment1,status_id,
+ LENGTH,width,height -- and other dimensional attributes.
+ FROM mtl_item_locations
+ WHERE subinventory_code LIKE 'MY%'
+ 
+ /* To know whether a particular inventory item is lot controlled or serial controlled we can run the 
+ below query. Can a item be both lot and serial controlled ????? */
+ 
+    SELECT lot_control_code,-- 1 for no control and 2 for full control.
+    auto_lot_alpha_prefix, 
+    default_lot_status_id, 
+    fixed_lot_multiplier,
+    start_auto_lot_number,
+    std_lot_size
+    --
+    serial_number_control_code,
+    serial_status_enabled,
+    start_auto_serial_number
+    FROM mtl_system_items_b 
+ WHERE segment1 ='LUCKYITEM'
+  
+/*
+Available to Promise (ATP)
+  
+ATP computation options :
+ATP computations use the consumption and accumulate available features. 
+Consumption resolves negative ATP after it is already determined that there is not enough 
+available inventory.
+Accumulation uses the excessive inventory from a period to determine where the new demand can be
+placed.
+Accumulate Available :
+This option determines how the
+To implement ATP, you have to define ATP rules. ATP rules let you tailor the ATP calculation to suit your business needs.
+ 
+Each ATP rule is a combination of 
+            ATP computation options
+            Time fence options
+            Supply and demand sources
+*/
+ 
+ 
+   SELECT  supply_type_code, supply_source_id,po_header_id, po_line_id, po_distribution_id,item_id,quantity,
+      destination_type_code,to_organization_id
+   FROM  mtl_supply 
+   --where item_id = 207984204
+ 
+ 
+   (SELECT DISTINCT item_id FROM mtl_supply)
+   
+   SELECT inventory_item_id FROM mtl_system_items_b 
+   WHERE segment1='LUCKYITEM'
+   
+   SELECT COUNT(*) FROM mtl_demand
+ 
+ 
+/* Just like GL,AR ,Inventory has its own periods as well & we can open period from 
+setup => costs => cost periods .And the data goes into the org_acct_periods. 
+ 
+Oracle Inventory --> Accounting Close Cycle --> Inventory Accounting Periods --> Change status 
+ 
+In inventory only one period at any time, while in GL or PO any periods can be open.
+ 
+This is the most trickiest part. Actually in inventory if you need to open 
+any period, then the previous period needs to be already opened. That is 
+if the previous period is not open yet, just open and close it.
+ 
+Also ensure that the purchasing periods are open, however in this case 
+more than one periods can be open simultaneously.
+  
+ Setup => Financials => Accounting =>  Control Purchasing Periods.   
+  
+If you do not have any item on hand, then you can do a subinventory transfer 
+of that item and then have some quantity available in the subinventory.
+*/
+ 
+/*
+In the general planning tab for an item in inventory, you enter the type of 
+planner that you use, i.e Min-Max planning method, Reorder Point planning 
+method or no plan at all.
+ 
+In the case of Min-Max planning method, you enter the Min and Max amounts 
+for that item. If a min is entered, you want atleast that amount of that 
+item on-hand always and if that amount is reached, Oracle inventory will
+suggest for placing a new order.
+If a max is entered, then you don't want more than the max amount of that item.
+ 
+Reorder Point Planning : An inventory planning method that is used to determine 
+when and how much to order based on customer service level, safety stock, 
+carrying cost,  order setup cost, Lead time and average demand.
+ 
+Minimum Order Quantity : this is the amount of the item that the system 
+places an order on, whenever it needs to reorder. Ex for discrete items, 
+when the net requirements fall short of the minimum order quantity, the planning algorithms suggest the minimum order quantity.
+ 
+Maximum Order Quantity :
+ Or optionally you can have an item to be MRP/MPS planned.
+ 
+If an item is vendor managed, then you should enter the planner for that item.*/ 
+ 
+-- hr_organization_units is a view based on hr_all_organization_units and 
+--hr_all_organization_units_tl.
+    SELECT * 
+ FROM hr_organization_units
+    WHERE organization_id = 1
+ 
+   SELECT * FROM hr_all_organization_units_tl
+   
+   SELECT * FROM hr_all_organization_units
+   WHERE organization_id =1
+ 
+  SELECT * FROM mtl_parameters_view
+ 
+--Move Order Issue and Mover Order Transfer :  
+ 
+/*Miscellaneous Receipt : 
+ Transactions => Miscellaneous Transaction (type = Miscellaneous Receipt)
+ Usually if we quickly want some amount of quantity for a particular item, 
+ then we can either do the PO,and receive against that PO. Or we can do a 
+ miscellaneous receipt for that particular item. Obviously when we do a miscellaneous 
+ receipt, we receive that particular item into a particular inventory
+ organization and into a particular subinventory. 
+*/
+ 
+-- Once we log into the Oracle Apps, the Operating unit is chosen by the 
+ 
+ profile value 'MO:Operating Unit'.
+ 
+ 
+ SELECT * FROM mtl_customer_item_xrefs  --_v
+ 
+ /* What are customer items?. Is it same as inventory items with customer orders enabled - NO */
+  SELECT customer_item_id, customer_id, address_id
+    ,item_definition_level
+  FROM mtl_customer_items
+ 
+ 
+  -- Item Categories Stuff : 
+  /**************************
+  Usually we will have a lot of structures defined for this particular KFF "Item Categories".
+  
+  Here the data goes into a key columns of the 
+  underlying table (not descriptive columns like attribute etc). The category id 
+  is the primary key which is based on the unique values of the segment values. 
+  */
+ 
+  SELECT category_id, structure_id ,attribute_category, attribute2, 
+     segment1, segment2, segment3
+  FROM   mtl_categories_b
+ 
+ /* When we define the category set,we use this particular KFF structure. That 
+  is we can define any number of category sets corresponding to different structures. 
+  Let us go thru the steps required to define a Item category KFF ,structure,
+  codes and the associated stuff. 
+ 
+  1. First step, we have a KFF "Item Categories" and we can define a structure
+  corresonding to this KFF,using the menu,,
+    setup => KFF=> Segments
+ 
+  2. The next step is to create the Item Categories or the combinations corresponding
+  to the Item Category Segment that is being created above. This process is creating
+  Category Codes. This is done using the menu, 
+       Setup => Items => Categories => Category Codes 
+   And then choose "New". Now we have to start creating the Category Codes,by
+   choosing the structure in the Structure Name field. This is the same  
+   structure that we have created in step 1 . Now once we come to Category
+   field, we enter the values corresponding to all the segments for this particular
+   structure. Basically here we are enterting the combination of values. If each
+   segment has a value set attached to it in the segment definition, then we 
+   have to choose from the valueset, otherwise we can enter any values we want to.
+   So like this, we define as many Item categories i.e combination of values as
+   we want. So each such combination is a item category. A set of such 
+   combinations is called a category set.
+   
+  3. The next step is we come to the Category Sets form, 
+      Setup => Items => Categories => Category Sets 
+ In this step we create a Category Set. that is, we form a set of combinations
+ that we have created in the above step. 
+ Hence in this from,we enter a Category Set name and description and in the 
+ Flex structure field, we enter the same structure that is created in the 
+ step 1. And in the below block, we enter all/some of the categories that are 
+ created in the above step 2. We also specify what is the default category 
+ for this item. 
+  
+ Hence a very important point to note here is that,out of all the structures we 
+    choose the structure by category set. There is nothing like profile value which 
+   choose the particular structure or the particular category set. We can use
+   multiple category sets at the same time for multiple inventory items and
+   hence there is no option to set a specific category set.
+ 
+    This concludes the Item Category Setup. Having created different categories
+ and category sets, we can now assign Items to Item Categories. 
+ 
+  Essentially we assign items to category sets just for reporting and grouping purposes.
+   Now we come to the item master,choose a particular item and from the menue
+              Tools => Categories 
+  
+  We can assign this item to a particular category set. What we need to understand is that 
+  when we assign item to a category set, we choose a specific value out of all the values 
+  in that particular category set.
+  This tells us that this item belongs to that particular category.  */ 
+  
+ SELECT * FROM mtl_categories
+    where creation_date >= trunc(sysdate)
+ 
+   SELECT * FROM mtl_category_sets_b
+ 
+What are the different types of Miscellaneous transactions.
+ 
+ 
+ 
+interorg transfer.
+ 
+what are inventory picking rules (Verisign does not use the inventory picking rules)
+ 
+ 
+ 
+ 
+Usually since the valid GL combination codes are already created in GL, using the Account generator , it
+is handy to go to GL and keep such combination,which can be used for entering the acct info in transactions.
+011.2120.0000.140060.0000.000.000000 - Asset
+011.9000.0000.250010.0000.020.000000 - Liability
+011.9000.0000.360010.0000.000.000000 - Owners Equity
+ 
+I think the account receipt/issue is basically a Miscellaneous receipt/issue, with the exception that
+we specify a gl account at the time of receipt/issue.
+ 
+It is important to note that for everything that we do in the Purchasing or OM, has an impact in Inventory in the
+form of transactions. That is if we do a sales order pick release, then immediately a inventory transaction 
+happens with the corresonding trasacation type (Sales Order Pick). And also the onhand quantities etc will get  
+reflected accordingly.
+ 
+Now we want to see if we do an internal req, does it do a corresponding internal req trx type in Inventory and for 
+that, create an internal req, and see whether it shows in the material transactions
+ as po req relation transaction type. ???????????????
+ req # 119035042
+ 
+Make sure that the item that you are ordering is Internal Order enabled.
+For any internal orders, the price is automatically defaulted to 0
+Also make sure the bill to location is specified for the internal customer
+ 
+WHY the delivery did not get created and i had to create a auto create delivery.  ????????????
+ 
+*/
+ 
+--We can try to see what kind of transactions did what amounts from,   
+    SELECT b.transaction_type_name,COUNT(*) 
+    FROM mtl_material_transactions a , mtl_transaction_types b
+    WHERE a.transaction_type_id = b.transaction_type_id --and transaction_type_id = 64
+    GROUP BY b.transaction_type_name
+    
+    SELECT * FROM mtl_material_transactions WHERE transaction_type_id = 64
+ 
+ 
+/* For each type of inventory transaction we will have the accounting information. 
+however for some of items like expense item, we may not have the accounting records 
+in the mtl_transaction_accounts.
+ 
+Why is that we are not seeing the mtl_transaction accounts records for all the 
+transactions even though it is an inventory item, not expense item. ????????
+ 
+Basically, the inventory classifies an item as an asset type item, based on the 
+subinventory. If we place a sales order on an asset item which is stocked in 
+an asset subinventory.   
+Usually pick release process can use a pick release rule which tells it to go 
+to which subinventory andget it from. However even with out the rule, we can 
+choose at the time of pick release ,which subinventoryshould be chosen. 
+Interestingly, when we place an order, we can tell which inventory org in the 
+form of the warehouse. we can also see the subinventory field(but not able to 
+select value in it). If the pick release process picks it from an asset subinventory, 
+then it goes ahead and creates the transaction accounts in the table,
+*/
+  
+    SELECT * FROM mtl_transaction_accounts.
+ 
+/*And if the item is picked from the expense subinventory , then it does not find 
+an entry in the transaction accounts.
+ 
+In the case where an item is received both in expense and asset subinventory and 
+there is no picking rule, when I try to pick release such kind of item, I 
+encountered an error, this is probably because the system is confused to pick that 
+item from which subinventory. Oracle is not designed to handle this kind of cases.
+ 
+Even though you define an asset item, you have to receive that item (using PO, Misc trx) into an asset 
+subinventory, otherwise the transaction accounts will not be generated. We can try to do a subinventory 
+transfer of an asset item from asset subinventory to an expense subinventory. What this effectively
+means that we are moving a specific amount of quantity of that asset item to the expense subinventory 
+as it is of no use/damaged. So this effectively means that we do not have any items in our asset subinventory.
+ 
+ 
+what happens when we post it to GL. ???????
+*/  
+ 
+ 
+1). What are shipping Networks ?
+Shipping networks determine between which two organizations you can do an inventory
+transfer. That is ,say if you want to do an inventory transfer between two inventory
+organizations M1 and M2, then you must define a shipping network between these two
+inventory organizations and specify whether you want this transfer to be 
+  -- Direct Or
+  -- Intransit 
+ 
+2). Explain the Inter-org transfer?
+ 
+Inter-org transfer is the transfer of items between two different inventory organizations.
+Remember this is not a transfer between two subinventories of the same inventory 
+organization, but it is between two inventory organizations. You can create an
+inter-org transfer using the menu 
+    Transactions => Inter-org Transfer 
+ 
+The from Org is the current inventory Organization.
+The LOV for the To org is determined by the shipping networks that you define between
+ the from Org to different organization. The shipping networks are defined here
+   Setup  => Organization  => Shipping Networks.
+ 
+You will be able to do an inter-org transfer to a particular destination organization
+only if the internal order enabled flag is not checked in the shipping networks.
+  
+    
+3). what is the difference between transactable and oe transactable??
+transactable means u can perform transactions on that item. i.e you can enter orders and book them.
+oe transactable means that trasactions can be interfaced to oracle inventory, that means, some of the transactions like pick release (which involve inventory transactions) cannot be performed, if you don't set this flag. mostly if the shippable flag is set, oe transactable is set, but if shippable is not set, you could still set this flag, for forecasting purposes. 
+ 
+4). How do you create a Kit in Inventory ?
+ 
+Create an item in Inventory,set it as inventory item, standard BOM and set pick components to Yes. This constitutes a kit, say xyz.
+So a kit is a standard BOM with only mandatory components 
+ So basically all you do in a kit is to select items in the kit like (one cd, one hardware security token, one user manual). So the kit does not have a work in process (wip) involved,only picking. Another important point is that a kit by itself will not onhand in inventory. Which means you will have on hand for cd, token and manual but no onhand for the kit xyz. 
+OR
+More easily ,just create an item and set the item type template as KIT in the main tab,and in the template all the appropriate flags will have been set. 
+One thing, interested I noticed is that when you create a kit item, the shippable flag is not set,although the kit itself is shipped right? May be what that means is that there are no delivery lines created for the kit itself,as opposed to the component items for which the delivery lines are created.
+We're only shipping the components and the Kit item is a logical unit. however in the case of ATO, we make ATO shippable since we ship the entire assembly and not individual components there.
+PTO configuration has the extra step of clicking on the configurator button to choose the items. 
+ 
+5). What is the difference between Asset type and Expense Types ??
+ 
+Asset Type and Expense Type are opposite:  (Expense account is also called as Charge Account)
+Earlier we have mentioned that, move orders are the orders which are used for moving the items between the
+subinventories. However if we need to move the items across inventory organizations ,then we can use the
+Internal Requisition process. In the Internal Requisition process, we have a clear way of mentioning the destination
+and the source inventory organizations. At the lowest level, each item is stored at the subinventory level.Each
+subinventory is either of asset type or expense type.
+     Hence there is no concept of inter-org transfer if we have only one inventory organization.
+    
+An item is created as an ASSET item by setting the flag in the tab
+     Costing => Inventory Asset Value  (and also costing enabling)
+ and you also mention the COGS account. An Asset item's cost is realized at the time of selling that item. All
+ stockable items are asset items.(Stockable item means no expense, it is an asset)
+ 
+An item is created as an EXPENSE by NOT setting the flag in the tab 
+     Costing => Inventory Asset Value
+ However in this case, we have to mention what is the Expense account. An expense item cost is realized
+ at the time of purchasing that item. Expense item means small items like stationery, pencils etc.
+    
+6). What is the difference between subinventory transfer, move order 
+ (transaction mover order) ??
+   Both the Move order as well as the subinventory transfer do the same result, 
+   i.e they move the item from one subinventory to another. However with the 
+   Move order, we have more functionality available.
+ Usually the system creates the Move order. Generally if we want to do a 
+ subinventory transfer we would go ahead and do the transfer,however some of 
+ the other modules like Manufacturing can potentially do the transfers. In that 
+ case, they would create a Move order. However someone should open that Move order
+ inspect it and approve that Move order,so that either subinventory transfer or 
+ account issue will happen. So the move order is a two step process,where in we 
+ first create,approve,allocate the move order and then transact it.
+ Look at OM stuff for more information. 
+ 
+7). How to setup a Master Organization ??
+ First we create an organization using the hr responsibility. once an 
+organization is created,then we can use the menu
+  setup => organizations => parameters
+ to set up that organization as a master organization. 
+ In here, we can also set up the child organizations
+ */
+ So to setup each child organization ,go to the change organization menu option,choose 
+ your inventory organization and after that,come to organization parameters and choose 
+ your master organization. 
+ 
+ 
+8). What is the difference between Item Cross Reference and Customer Item Cross Reference?
+  Customer Item Cross Reference is a particular instance of Cross references. 
+  Item Cross Reference is a generic term which can be used to define reference 
+  with Customer's Items and Supplier's Items
+  
+For Item cross reference is used to track the old items or the supplier 
+items. That is ,if the same item is referred by a different name by the 
+supplier then, the item cross reference will map these two names.
+  
+  For Customer item cross reference,is probably used ,say for the sales guys to place the order on items, by
+  which they remember. Thatisif a particular item 'Myitem" is referred to as 'abcd1' using the
+  customer item cross reference, then we can go to the sales order from and in the line item
+  we can refer to this 'abcd1' to place an order on that item. 
+  But usually the customer item cross reference, is when you are loading the data from EDI 40 etc. That is 
+  a customer sends an xml kind of file for placing a sales order and that file consists of all the customer 
+  item references and not oracle item references.
+  */
+ 
+9). What is the difference between Operating Unit and Inventory Organization ? 
+In some of the important modules like OM, Purchasing etc tables we find that 
+there is and org_id. this is actually an operating unit id (and not to be 
+confused with the inventory org id). And when we log into the applications, 
+the operating unit is already set from the profile parameter 'MO:Operating Unit'.
+However in the inventory module, the org id that we are always referring to 
+is the inventory org id (and not the operating unit id).
+ 
+When we enter the Inventory module, we are always prompted to choose a 
+particular inventory org id.
+ 
+Usually when we create an item, we always assign it to an org id, i.e what 
+this means is that we can transact this item with in that particular 
+inventory org id. That is particularly we can purchase, sell with in that
+inventory org id.
+ 
+When we create an org it is always associated with a location and hence it 
+goes into the hr_organizations and hr_locations. It is important to know 
+that both the employee locations and the inventory locations go into
+the same table hr_locations.*/
+    
+10).  What are Organization attributes /
+Organization Attributes : Usually we create an item in the Master org, set 
+all its attributes and then assign that item to a different inventory 
+organization. However it is important to note that some attributes may not 
+be set into the new organization,so from the organization manager. 
+ 
+We can click on the org attributes and set the attributes of the item accordingly.
+ 
+11). What are item attributes?
+   There are two kinds of item attributes, 
+      --- Item Defining attributes
+   --- Item Status attributes
+  The following is the mapping between item defining and status attributes
+     Inventory Item   (stockable, transactable, BOM Allowed)          
+         Internal Ordered (Internal Orders Enabled) 
+  Purchased   (Purchasable)
+         MRP Planning Method
+         Costing Enabled  
+         Engineering Item
+         Customer Ordered  (Customer Orders Enabled)
+         Support Service 
+  Invoiceable Item (Invoice Enabled)
+ 
+ Build in WIP and Recipe enabled are status attributes for which there is no
+ corresponding item defnining attirubtre.
+ 
+ 
+12). What do you mean by when an item is in status control ?
+
+Posted by Kishore C B at 02:12 
+Email This
+BlogThis!
+Share to Twitter
+Share to Facebook
+Share to Pinterest
+
+Labels: Inventory
+No comments:
+Post a Comment
+ 
+Newer Post Older Post Home
+Subscribe to: Post Comments (Atom)
+LABELS
+
+Account Payables (2)
+ADF (1)
+AGIS (11)
+BI/XML Publisher (2)
+COGS (Cost Of Goods Sold) (1)
+FNDLOAD (1)
+Interfaces/Conversions (1)
+Inventory (8)
+MOAC (MultiOrgAccessControl) (2)
+Oracle Alerts (1)
+Oracle Apps Interview Q/A (7)
+Oracle Apps Technical (2)
+Order Management (36)
+PL/SQL (6)
+Purchasing (4)
+SLA (SubLedgerAccounting) (2)
+SQL (1)
+WorkFlow (4)
+ORACLE APPLICATIONS R12..........
+
+?  2015 (2)
+?  2014 (3)
+?  2013 (69)
+?  December (3)
+?  April (1)
+?  March (3)
+?  January (62)
+Collections in Oracle PL/SQL
+Database Triggers Overview
+Autonomous Transactions
+Inventory Transactions Useful Information
+Order Management Useful Information
+ORACLE Applications 11i Q/A
+Reports (D2K) Q/A
+Drop Ship tables in Order Management
+Order Management Tables
+Prerequisite setups required for Order to Cash(O2C...
+Complete Order to Cash(O2C) Techno-Functional flow...
+Scheduling in Order Management
+Defaulting rules in Order Management
+Validation Template for Processing Constraints in ...
+Processing Constraints in OM
+Transaction Type Definition(OM Setups)
+Document Sequence (OM Setups)
+Order Management Setups - Profile Options
+Oracle Workflows in Order Management
+Oracle apps MOAC setup
+$FLEX$ Profile Usage
+XML Publisher Basic Steps
+Drop Ship Cycle in Order Management
+Return Material Authorization (RMA) in Order Manag...
+How to Trace a file in Oracle Apps
+FNDLOAD
+Oracle Alerts
+SQL Loader Part - I
+SQL Loader With Examples
+Oracle Apps Interview Q/A - 4
+Oracle Apps Interview Q/A - 3
+Oracle Apps Interview Q/A - 2
+Oracle Apps Interview Q/A - 1
+PL/SQL Interview Q&A - 1
+Query to Check if a particular e E-Business Suite ...
+R12 - Profiles to Set the Credit Card authorizatio...
+Oracle Workflow Background CP Process
+OM Issue (Drop Ship Order Stuck in Awaiting Receip...
+Complete Flow from Sales Order to WIP
+OM RMA Issue (Not able to Receive an RMA in Invent...
+OM Issue on SalesOrder Line Stuck with Deferred St...
+Serial Control Item & Drop Ship in Oracle Apps
+OM ITS Issue (Key Features of Interface Trip Stop ...
+R12 COGS (Cost Of Goods Sold)
+Oracle 10g Bulk Binding For Better Performance
+R12 Multi-Org Access Control (MOAC)
+How to Customize COGS Workflow
+Inventory Queries
+How to Skip/Retry Workflow
+OM Issue (RMA stuck at APPROVAL_RETURN_ORDER_NTFA ...
+How to Setup transaction type in Order Management ...
+APP-FND-01564. Oracle Error 1403 in fdxwho (R11i, ...
+OM Issue (ORA 1403 : No Data Found.... Issue on Sh...
+Order Management MACD
+OM Scheduling Issue
+Oracle Order to Cash Queries
+How to Progress Order lines STUCK in Fulfillment S...
+How to Skip Scheduling in Oracle Order Management ...
+Creating and testing a simple business event in Or...
+How to create your own serial numbers using API
+Create, Allocate and Transact a Move Order using A...
+Importing Sales Orders From Excel
+?  2012 (35)
+ABOUT ME
+
+Kishore C B
+View my complete profile
+Picture Window template. Powered by Blogger.
